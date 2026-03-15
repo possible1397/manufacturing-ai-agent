@@ -1,5 +1,5 @@
 .venv/
 output/chroma_db/
-data/
+data/*Backup*.xlsx
 __pycache__/
 .idea/

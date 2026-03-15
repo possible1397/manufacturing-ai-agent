@@ -49,8 +49,6 @@ def sanitize_data():
         df['Machine_ID'] = df['Machine_ID'].map(lambda x: machine_map.get(str(x), x) if pd.notna(x) else x)
 
     # 3. Textual Replacement inside Content Columns
-    text_columns = ['Symptom', 'Solution', 'Root_Cause', 'Full_Content']
-
     def mask_text(text):
         if pd.isna(text):
             return text
@@ -64,8 +62,8 @@ def sanitize_data():
                 text = text.replace(key, all_maps[key])
         return text
 
-    for col in text_columns:
-        if col in df.columns:
+    for col in df.columns:
+        if df[col].dtype == object or pd.api.types.is_string_dtype(df[col]):
             df[col] = df[col].apply(mask_text)
 
     # Save the sanitized payload over the original file
