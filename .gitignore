@@ -1,5 +1,10 @@
 .venv/
-output/chroma_db/
-data/*Backup*.xlsx
 __pycache__/
 .idea/
+
+# 資料與產出一律不進版控。
+# data/ 是真實維修日誌（含客戶與聯絡人資訊）；
+# output/ 是由它衍生的 jsonl / csv / 向量庫，同樣帶有原文。
+data/*
+!data/README.md
+output/

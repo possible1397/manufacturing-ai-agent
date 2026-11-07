@@ -5,6 +5,53 @@ import re
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
+
+# --- 通用 PII 遮蔽 ---------------------------------------------------------
+# 下方的 client_map / machine_map 只能遮蔽「出現在 Client / Machine_ID 欄位」的值。
+# 工程師常把客戶名、聯絡人、Email 與電話直接打在問題描述裡，那些值從未進過
+# 對照表，因此完全不會被取代。以下規則不依賴對照表，獨立再掃一次。
+EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+MOBILE_RE = re.compile(r"(?<![\d-])09\d{2}[-\s]?\d{3}[-\s]?\d{3}(?![\d-])")
+TEL_RE = re.compile(r"\(0\d{1,2}\)\s?\d{3,4}[-\s]?\d{4}")
+
+# 自由欄位中仍需遮蔽的字詞（客戶簡稱、人名…）。
+# 這份清單本身就是敏感資訊，放在不進版控的 data/extra_terms.txt，一行一個詞。
+EXTRA_TERMS_FILE = DATA_DIR / "extra_terms.txt"
+
+
+def load_extra_terms():
+    if not EXTRA_TERMS_FILE.exists():
+        return []
+    with open(EXTRA_TERMS_FILE, "r", encoding="utf-8") as f:
+        return [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+
+
+def scrub_pii(text: str, extra_terms=()) -> str:
+    text = EMAIL_RE.sub("[EMAIL]", text)
+    text = MOBILE_RE.sub("[PHONE]", text)
+    text = TEL_RE.sub("[PHONE]", text)
+    for term in sorted((t for t in extra_terms if t), key=len, reverse=True):
+        text = text.replace(term, "[REDACTED]")
+    return text
+
+
+def audit(df, extra_terms=()):
+    """輸出前的最後一道檢查，回傳 [(類別, 範例)]。"""
+    joined = chr(10).join(
+        df[c].astype(str).str.cat(sep=chr(10))
+        for c in df.columns
+        if df[c].dtype == object
+    )
+    found = []
+    for kind, pat in (("Email", EMAIL_RE), ("電話", MOBILE_RE), ("電話", TEL_RE)):
+        m = pat.search(joined)
+        if m:
+            found.append((kind, m.group(0)))
+    for term in extra_terms:
+        if term and term in joined:
+            found.append(("指定字詞", term))
+    return found
+# ---------------------------------------------------------------------------
 EXCEL_FILE = DATA_DIR / "Combined_Maintenance_Log_Cleaned.xlsx"
 BACKUP_FILE = DATA_DIR / "Combined_Maintenance_Log_Cleaned_Backup.xlsx"
 
@@ -19,6 +66,7 @@ def sanitize_data():
         print(f"已建立原文備份檔: {BACKUP_FILE}")
 
     df = pd.read_excel(EXCEL_FILE)
+    extra_terms = load_extra_terms()
 
     # 1. Identifier Mappings
     # Safely get unique, non-null clients and machine IDs
@@ -60,11 +108,20 @@ def sanitize_data():
         for key in sorted_keys:
             if key in text:
                 text = text.replace(key, all_maps[key])
-        return text
+        return scrub_pii(text, extra_terms)
 
     for col in df.columns:
         if df[col].dtype == object or pd.api.types.is_string_dtype(df[col]):
             df[col] = df[col].apply(mask_text)
+
+    # 寫檔前稽核：確認沒有漏網的聯絡資訊或指定字詞
+    leaks = audit(df, extra_terms)
+    if leaks:
+        for kind, sample in leaks:
+            print(f"[!] 偵測到未遮蔽的{kind}：{sample}")
+        raise SystemExit(
+            f"中斷：請把漏網的字詞加進 {EXTRA_TERMS_FILE} 後重跑，原始檔未被覆蓋。"
+        )
 
     # Save the sanitized payload over the original file
     df.to_excel(EXCEL_FILE, index=False)

@@ -58,6 +58,23 @@
 - **解決方法 (Prompt Engineering)**：需在 `app.py` 的程式碼中加強系統指令，例如強制規定：「如果歷史案例沒有提到解法，請回答『歷史案例中無此解法』，嚴禁自行推測！」。
 ```
 
+## 🔒 資料處理與去識別化
+
+**本倉庫不包含任何真實維修日誌。** `data/` 與 `output/` 都不進版控，
+`data/README.md` 說明輸入檔應有的欄位結構。
+
+去識別化分兩層，缺一不可：
+
+1. **欄位代號化**：`Client` → `Cust_001`、`Machine_ID` → `Machine_001`，
+   並把這些值拿去所有文字欄位做一次全文取代。
+2. **自由欄位遮蔽**：工程師常把客戶簡稱、聯絡人、Email 與電話直接打在
+   `Symptom` 這類自由欄位裡。那些值從未出現在 `Client` 欄，第 1 層抓不到。
+   因此另以正則移除 Email 與電話，並用 `data/extra_terms.txt` 字詞黑名單
+   處理公司簡稱與人名。
+
+`scripts/sanitize_data.py` 在覆寫檔案前會對全表稽核一次，偵測到未遮蔽的
+聯絡資訊或黑名單字詞就中止，原始檔保持不變。
+
 ## 維運說明
 - **資料更新**：當有新的維修紀錄需要匯入時，只需重新執行 `scripts/prepare_rag_cases.py` 與 `scripts/build_vector_db.py` 即可更新 ChromaDB。不需要重啟或修改主程式。
 - **UI 服務**：網頁介面透過 `streamlit run app.py` 啟動，並即時向本地的 `localhost:11434` (Ollama) 發出請求。
